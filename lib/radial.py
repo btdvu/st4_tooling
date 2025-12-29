@@ -28,7 +28,7 @@ import sigpy as sp
 from scipy.optimize import least_squares
 
 
-def trajGoldenAngle(N, n_spokes, negative_angle=False):
+def trajGoldenAngle(N, n_spokes, starting_angle=0, negative_angle=False):
     """
     Generate golden-angle radial k-space trajectory.
     
@@ -38,6 +38,8 @@ def trajGoldenAngle(N, n_spokes, negative_angle=False):
         Number of samples along each radial spoke.
     n_spokes : int
         Number of radial spokes (projections).
+    starting_angle: float
+        Angle of the first golden-angle spoke.
     negative_angle : bool, optional
         If True, invert trajectory direction. Default: False.
     
@@ -63,10 +65,10 @@ def trajGoldenAngle(N, n_spokes, negative_angle=False):
     line = np.linspace(-k_max, k_max, N)
 
     # Generate each radial spoke
-    for projection in range(n_spokes):
+    for i_projection in range(n_spokes):
         # Calculate spoke angle
-        radial_angle = projection * angle_inc
-        angle = radial_angle * PI / 180.0
+        angle_in_deg = i_projection * angle_inc + starting_angle
+        angle = angle_in_deg * PI / 180.0
 
         # Direction vector for this spoke
         kx_dir = np.cos(angle)
@@ -81,8 +83,8 @@ def trajGoldenAngle(N, n_spokes, negative_angle=False):
         line_y = ky_dir * line
 
         # Store coordinates
-        traj[projection, :, 0] = line_x
-        traj[projection, :, 1] = line_y
+        traj[i_projection, :, 0] = line_x
+        traj[i_projection, :, 1] = line_y
 
     return traj
 
@@ -264,22 +266,22 @@ def shiftTrajectory(traj, shift_matrix):
     Parameters
     ----------
     traj : np.ndarray
-        Input trajectory shape: (n_spokes, n_ro, 2).
+        Input trajectory shape: (n_spokes, n_ro, n_dim).
     shift_matrix : np.ndarray
         2x2 gradient delay shift matrix.
     
     Returns
     -------
     shifted_traj : np.ndarray
-        Corrected trajectory shape: (n_spokes, n_ro, 2).
+        Corrected trajectory shape: (n_spokes, n_ro, n_dim).
     
     Notes
     -----
     Computes angle-dependent k-space shifts and applies to nominal trajectory.
     """
     # Extract parameters
-    n_ro = traj.shape[1]
     n_spokes = traj.shape[0]
+    ndim = traj.shape[-1]
 
     # Compute projection angles for all spokes
     proj_angles = _trajToAngles(traj)
@@ -290,8 +292,11 @@ def shiftTrajectory(traj, shift_matrix):
     # Compute k-space shifts for each projection angle
     k_shifts = shift_matrix@proj_unit_vectors
 
-    # Reshape shifts for broadcasting
+    # Reshape shifts for broadcasting and to match the trajectory dimensions
     k_shifts_tobeAdded = np.reshape(k_shifts.T, (n_spokes, 1, 2))
+    if ndim >= 2:
+        zero_pad = np.zeros(list(k_shifts_tobeAdded.shape[:2])+[ndim-2])
+        k_shifts_tobeAdded = np.concatenate([k_shifts_tobeAdded, zero_pad], axis=-1)
 
     # Apply shifts to nominal trajectory
     shifted_traj = traj - k_shifts_tobeAdded
